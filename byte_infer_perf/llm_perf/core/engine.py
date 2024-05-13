@@ -7,10 +7,12 @@ from typing import Any, Dict, Iterable, List
 
 import torch
 from torch import distributed as dist
+import deepspeed
 
 from llm_perf.core.generation import GenerateConfig, GenerateRequest, GenerateResult
 from llm_perf.core.generation import ResultQueue
 from llm_perf.utils.logger import logger
+from llm_perf.model_zoo.llama2 import LlamaModel, LlamaDecoderLayer
 
 
 # get model impl from orig or vendor 
@@ -29,7 +31,10 @@ def get_model_impl(
     base_module_impl = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(base_module_impl)
 
-    orig_model = getattr(base_module_impl, model_inferface)
+    module = importlib.import_module(
+        f"llm_perf.model_zoo.llama2")
+    orig_model = getattr(module, "LlamaForCausalLM", None)
+    # orig_model = getattr(base_module_impl, model_inferface)
 
     # Get vendor model
     vendor_model_path = f"llm_perf/backends/{hardware_type}/model_impl"
@@ -127,6 +132,8 @@ class CoreEngine(ABC):
             local_rank = 0
             world_size = 1
 
+        local_rank = int(os.getenv("LOCAL_RANK", "0"))
+        world_size = int(os.getenv("WORLD_SIZE", "0"))
         # get model impl
         model_impl = get_model_impl(model_config, hardware_type)
 
@@ -150,6 +157,21 @@ class CoreEngine(ABC):
             model = model_impl.from_pretrained(
                 model_config["model_path"], config=LlamaConfig(**model_config["network"])
             )
+            # model = model_impl.from_pretrained(
+            #     model_config["model_path"], low_cpu_mem_usage=True, torch_dtype=torch.float16
+            # )
+            # self.model = model_cls.from_pretrained(self.model_path, low_cpu_mem_usage=True, torch_dtype=self.dtype)
+            # print(f"----------set device rank {torch.npu.current_device()}, {world_size}, {local_rank} ------------")
+            deepspeed.init_distributed(dist_backend="hccl")
+            model = deepspeed.init_inference(
+                model=model,
+                mp_size=world_size,
+                dtype=torch.float16,
+                replace_with_kernel_inject=False,
+                injection_policy={LlamaDecoderLayer: ('self_attn.o_proj', 'mlp.down_proj')}
+            )
+            model = model.npu()
+            # print(f"torch.npu.memory_stats() {torch.npu.memory_stats()}")
         else:
             raise ValueError(f'Unknown model name: {model_name}')
         

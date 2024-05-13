@@ -28,6 +28,8 @@ def get_args():
         "--port", "-p", type=str, required=True)
     parser.add_argument(
         "--max_batch_size", type=int, required=True)
+    parser.add_argument(
+        "--local_rank", type=int, default=0, help="Local rank id")
     args = parser.parse_args()
     return args
 

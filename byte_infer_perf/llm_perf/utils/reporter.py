@@ -218,7 +218,7 @@ class Reporter:
             shutil.move(dump_file, f"{logits_dump_path}/{i}.npy")
             logger.info(f"move {dump_file} to {logits_dump_path}/{i}.npy")
 
-        if self.backend == "GPU":
+        if self.backend == "GPU" or self.backend == "NPU":
             return
 
         # 2. Logits Diff: First token diff
