@@ -58,7 +58,6 @@ class NpuSampler(CoreSampler):
         # The aux_data is softmax_out here
         return next_tokens, softmax_out
 
-
     def _sample(
         self,
         logits: torch.FloatTensor,
