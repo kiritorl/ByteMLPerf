@@ -9,17 +9,17 @@ import torch.nn as nn
 from typing import Dict, Any
 from llm_perf.utils.logger import logger
 from llm_perf.utils.ps_utils import check_memory_usage
-from llm_perf.utils.dist_utils import check_dist
+from llm_perf.utils.dist_utils import check_dist, check_dist_npu
 
 from accelerate import init_empty_weights
 
 from llm_perf.core.ckpt_loader import CoreCkptLoader, ChatGLM2_ModelLoader
-from llm_perf.backends.GPU.gpu_ckpt_loader import GpuCkptLoader
+from llm_perf.backends.NPU.npu_ckpt_loader import NpuCkptLoader
 
 from .modeling_chatglm2 import ChatGLMForConditionalGeneration, ChatGLMModel, ChatGLMConfig
 
 
-class GPUChatGLM2Loader(GpuCkptLoader):
+class NPUChatGLM2Loader(NpuCkptLoader):
     def __init__(
         self, 
         prefix, 
@@ -124,7 +124,7 @@ class GPUChatGLM2Loader(GpuCkptLoader):
 
 
 
-class GPUChatGLM2(nn.Module):
+class NPUChatGLM2(nn.Module):
     def __init__(self, xpu_cfg: Dict[str, Any]) -> None:
         super().__init__()
 
@@ -152,11 +152,11 @@ class GPUChatGLM2(nn.Module):
         if self.mp_size > 1:
             logger.info(f"RANK: {self.local_rank} {self.mp_size} init_process_group...")
             dist.init_process_group(
-                backend="nccl", 
+                backend="hccl", 
                 world_size=self.mp_size, 
                 rank=self.local_rank
             )
-            check_dist()
+            check_dist_npu()
             
         check_memory_usage("Begin")
 
@@ -183,7 +183,7 @@ class GPUChatGLM2(nn.Module):
 
 
     def load_weight(self, ckpt_path):
-        p_loader = GPUChatGLM2Loader(
+        p_loader = NPUChatGLM2Loader(
             self.prefix, self.transformer_model, self.chatglm_config, 
             self.mp_size, self.local_rank, 
             ckpt_path

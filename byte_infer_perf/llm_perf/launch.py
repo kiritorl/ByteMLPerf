@@ -23,7 +23,7 @@ import signal
 from typing import Any, Dict, Iterable, List
 
 # ${prj_root}/
-BYTE_MLPERF_ROOT = pathlib.Path(__file__).parents[1]
+BYTE_MLPERF_ROOT = pathlib.Path(__file__).parents[1].absolute()
 LLM_PERF_ROOT = BYTE_MLPERF_ROOT.joinpath("llm_perf")
 os.chdir(BYTE_MLPERF_ROOT)
 sys.path.insert(0, BYTE_MLPERF_ROOT.__str__())

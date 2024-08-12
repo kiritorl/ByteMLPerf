@@ -5,6 +5,7 @@ __pycache__
 .vscode/
 *.npy
 *.tar
+*.log
 span.log
 byte_micro_perf/backends/*/venv/
 byte_micro_perf/reports/

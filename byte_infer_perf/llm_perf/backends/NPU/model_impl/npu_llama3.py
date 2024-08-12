@@ -50,7 +50,6 @@ class NPULlamaLoader(NpuCkptLoader):
         self.state_dict = model_loader.load_weight()
         
     def infusion_to_model(self):
-        print(f"self.state_dict ------------ {self.state_dict}")
         self.model.model.embed_tokens.weight = self.to_parameter(self.state_dict["model.embed_tokens.weight"])
         for i in range(self.model_config.num_hidden_layers):
             self.model.model.layers[i].input_layernorm.weight = self.to_parameter(self.state_dict[f"model.layers.{i}.input_layernorm.weight"])

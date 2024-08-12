@@ -11,16 +11,16 @@ from typing import Dict, Tuple, Any
 import torch
 import torch.nn as nn
 
-from .npu_chatglm2 import GPUChatGLM2
-from .gpu_llama3 import GPULlama
+from .npu_chatglm2 import NPUChatGLM2
+from .npu_llama3 import NPULlama
 from .gpu_falcon import GPUFalcon
 from .gpu_mixtral import GPUMixtral
 
 from llm_perf.utils.logger import logger
 
 __all__ = {
-    "chatglm2": GPUChatGLM2, 
-    "llama3": GPULlama,
+    "chatglm2": NPUChatGLM2, 
+    "llama3": NPULlama,
     "falcon": GPUFalcon, 
     "mixtral": GPUMixtral
 }

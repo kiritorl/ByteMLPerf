@@ -132,6 +132,7 @@ class NpuMpEngine(CoreMpEngine):
                 output_dict = model.forward(inputs_dict)
                 torch.npu.synchronize()
                 if local_rank == 0:
+                    output_dict['logits'] = output_dict['logits'].cpu()
                     output_queue.put(output_dict)
 
         except Exception as e:
