@@ -203,6 +203,7 @@ class PerfEngine:
         if self.server_process and self.server_process.poll() is None:
             logger.info("stopping server process")
             os.killpg(os.getpgid(self.server_process.pid), signal.SIGTERM)
+            os.system("pkill -f -9 \"multiprocessing|launch_server.py|tasks/gpt2/\"")
             try:
                 self.server_process.wait(timeout=5)
                 logger.info("server process has stopped")

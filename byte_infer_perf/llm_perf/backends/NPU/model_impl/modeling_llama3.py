@@ -348,6 +348,10 @@ class LlamaAttention(nn.Module):
             key_states = self.k_proj(hidden_states)
             value_states = self.v_proj(hidden_states)
 
+        is_context = kwargs.get("is_context")
+        valid_slot_ids = kwargs.get("valid_slot_ids")
+        all_q_len = kwargs.get("all_q_len")
+        all_kv_len = kwargs.get("all_kv_len")
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
@@ -356,46 +360,55 @@ class LlamaAttention(nn.Module):
         cos, sin = self.rotary_emb(value_states, position_ids)
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
-        if past_key_value is not None:
+        # if past_key_value is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
-            cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-            key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+            # cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+            # key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+
+        if is_context:
+            slot_id = valid_slot_ids[0]
+            q_len = all_q_len[0]
+            past_key_value[self.layer_idx][0][slot_id:slot_id+1, :, :q_len, :] = key_states
+            past_key_value[self.layer_idx][1][slot_id:slot_id+1, :, :q_len, :] = value_states
+        else:
+            batch_size, _, q_len, _ = key_states.shape
+            max_qkv_len = q_len + max(all_kv_len)
+            for i, slot_id in enumerate(valid_slot_ids):
+                q_len = all_q_len[i]
+                kv_len = all_kv_len[i]
+                past_key_value[self.layer_idx][0][slot_id:slot_id+1, :, kv_len:kv_len+q_len, :] = key_states[i, :, :, :]
+                past_key_value[self.layer_idx][1][slot_id:slot_id+1, :, kv_len:kv_len+q_len, :] = value_states[i, :, :, :]
+
+            cur_k_cache = past_key_value[self.layer_idx][0][:, :, :max_qkv_len, :]
+            cur_v_cache = past_key_value[self.layer_idx][1][:, :, :max_qkv_len, :]
+            select_slots = torch.tensor(valid_slot_ids, device=key_states.device)
+            key_states = torch.index_select(cur_k_cache, 0, select_slots)
+            value_states = torch.index_select(cur_v_cache, 0, select_slots)
 
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
 
-        attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+        causal_mask = ~attention_mask
 
-        if attention_mask is not None:  # no matter the length, we just slice it
-            causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
-            attn_weights = attn_weights + causal_mask
+        if query_states.device.type == "npu" and causal_mask is not None:
+            query_states = query_states.contiguous()
+            key_states = key_states.contiguous()
+            value_states = value_states.contiguous()
 
-        # upcast attention to fp32
-        attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
-        attn_output = torch.matmul(attn_weights, value_states)
-
-        if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
-            raise ValueError(
-                f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
-                f" {attn_output.size()}"
-            )
+        attn_output = torch.nn.functional.scaled_dot_product_attention(
+            query_states,
+            key_states,
+            value_states,
+            attn_mask=causal_mask,
+            dropout_p=self.attention_dropout if self.training else 0.0
+        )
 
         attn_output = attn_output.transpose(1, 2).contiguous()
+        attn_output = attn_output.view(bsz, q_len, self.num_heads * self.head_dim)
 
-        attn_output = attn_output.reshape(bsz, q_len, self.hidden_size)
+        attn_output = self.o_proj(attn_output)
 
-        if self.config.pretraining_tp > 1:
-            attn_output = attn_output.split(self.hidden_size // self.config.pretraining_tp, dim=2)
-            o_proj_slices = self.o_proj.weight.split(self.hidden_size // self.config.pretraining_tp, dim=1)
-            attn_output = sum([F.linear(attn_output[i], o_proj_slices[i]) for i in range(self.config.pretraining_tp)])
-        else:
-            attn_output = self.o_proj(attn_output)
-
-        if not output_attentions:
-            attn_weights = None
-
-        return attn_output, attn_weights, past_key_value
+        return attn_output, None, past_key_value
 
 
 class LlamaFlashAttention2(LlamaAttention):
